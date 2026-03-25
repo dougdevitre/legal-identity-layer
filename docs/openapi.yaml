@@ -1,0 +1,326 @@
+openapi: 3.1.0
+info:
+  title: Legal Identity Layer API
+  version: 0.1.0
+  description: >
+    API for managing legal identities, credentials, authentication,
+    role-based access control, and case-identity linking in the Justice OS ecosystem.
+  contact:
+    name: Justice OS Team
+    url: https://github.com/justice-os/legal-identity-layer
+
+servers:
+  - url: https://api.justice-os.org/identity/v1
+    description: Production
+  - url: http://localhost:3000/v1
+    description: Local development
+
+paths:
+  /auth/login:
+    post:
+      summary: Authenticate a user
+      description: Initiates an OAuth2/OIDC authentication flow and returns tokens.
+      operationId: authLogin
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [grantType]
+              properties:
+                grantType:
+                  type: string
+                  enum: [authorization_code, client_credentials]
+                code:
+                  type: string
+                  description: Authorization code (for authorization_code grant)
+                redirectUri:
+                  type: string
+                  format: uri
+      responses:
+        '200':
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPayload'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/refresh:
+    post:
+      summary: Refresh an access token
+      operationId: authRefresh
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: New token payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPayload'
+        '401':
+          description: Invalid or expired refresh token
+
+  /identity/wallet:
+    post:
+      summary: Create a new identity wallet
+      operationId: createWallet
+      tags: [Identity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWalletInput'
+      responses:
+        '201':
+          description: Wallet created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProfile'
+        '409':
+          description: User already has a wallet
+
+    get:
+      summary: Get the current user's identity wallet
+      operationId: getWallet
+      tags: [Identity]
+      responses:
+        '200':
+          description: Identity profile with credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProfile'
+        '404':
+          description: Wallet not found
+
+  /identity/credentials:
+    post:
+      summary: Issue a new credential
+      operationId: issueCredential
+      tags: [Identity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueCredentialInput'
+      responses:
+        '201':
+          description: Credential issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Credential'
+
+    get:
+      summary: List credentials for the current user
+      operationId: listCredentials
+      tags: [Identity]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, verified, expired, revoked]
+      responses:
+        '200':
+          description: List of credentials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Credential'
+
+  /roles/assign:
+    post:
+      summary: Assign a role to a user
+      operationId: assignRole
+      tags: [Roles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, role]
+              properties:
+                userId:
+                  type: string
+                role:
+                  type: string
+                  enum: [system-admin, judge, clerk, attorney, advocate, parent, litigant, public-viewer]
+      responses:
+        '200':
+          description: Role assigned
+        '403':
+          description: Insufficient permissions to assign role
+
+  /cases/link:
+    post:
+      summary: Link a user identity to a court case
+      operationId: linkCase
+      tags: [Cases]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, caseId, role]
+              properties:
+                userId:
+                  type: string
+                caseId:
+                  type: string
+                role:
+                  type: string
+                  description: User role in this case (e.g., attorney, litigant)
+                courtId:
+                  type: string
+      responses:
+        '200':
+          description: User linked to case
+        '404':
+          description: User or case not found
+
+    delete:
+      summary: Unlink a user from a court case
+      operationId: unlinkCase
+      tags: [Cases]
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: caseId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User unlinked from case
+
+components:
+  schemas:
+    TokenPayload:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        idToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+        tokenType:
+          type: string
+          enum: [Bearer]
+        scope:
+          type: string
+
+    IdentityProfile:
+      type: object
+      properties:
+        userId:
+          type: string
+        displayName:
+          type: string
+        email:
+          type: string
+          format: email
+        credentials:
+          type: array
+          items:
+            $ref: '#/components/schemas/Credential'
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateWalletInput:
+      type: object
+      required: [userId, displayName, email]
+      properties:
+        userId:
+          type: string
+        displayName:
+          type: string
+        email:
+          type: string
+          format: email
+
+    Credential:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [bar-number, court-id, government-id, court-appointment, legal-aid-affiliation, interpreter-certification]
+        value:
+          type: string
+        issuer:
+          type: string
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, verified, expired, revoked]
+
+    IssueCredentialInput:
+      type: object
+      required: [type, value, issuer]
+      properties:
+        type:
+          type: string
+        value:
+          type: string
+        issuer:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: []
